@@ -1,0 +1,33 @@
+ALTER TABLE apis  
+ADD COLUMN weighted_tsv tsvector  
+
+UPDATE apis SET  
+    weighted_tsv = x.weighted_tsv
+FROM (  
+    SELECT api_name,
+           setweight(to_tsvector('english', COALESCE(api_name,'')), 'A') ||
+           setweight(to_tsvector('english', COALESCE(vendor_name,'')), 'B')||
+           setweight(to_tsvector('english', COALESCE(description,'')), 'C')||
+           setweight(to_tsvector('english', COALESCE(api_description,'')), 'D')
+           AS weighted_tsv
+     FROM apis
+) AS x
+WHERE x.api_name = apis.api_name;  
+
+
+CREATE FUNCTION weighted_tsv_trigger() RETURNS trigger AS $$  
+begin  
+  new.weighted_tsv :=
+     setweight(to_tsvector('english', COALESCE(new.api_name,'')), 'A') ||
+           setweight(to_tsvector('english', COALESCE(new.vendor_name,'')), 'B')||
+           setweight(to_tsvector('english', COALESCE(new.description,'')), 'C')||
+           setweight(to_tsvector('english', COALESCE(new.api_description,'')), 'D');
+  return new;
+end  
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER upd_tsvector BEFORE INSERT OR UPDATE  
+ON apis  
+FOR EACH ROW EXECUTE PROCEDURE weighted_tsv_trigger();  
+
+CREATE INDEX weighted_tsv_idx ON apis USING GIN (weighted_tsv);
